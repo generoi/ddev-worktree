@@ -7,13 +7,19 @@ Shared MariaDB by default; Caddy (`replace-response`) rewrites browser URLs to `
 ## Install
 
 ```bash
-ddev add-on get generoi/ddev-worktree
+ddev add-on get generoi/ddev-worktree --version v0.1.1
 ```
 
-Pin a release:
+If the add-on registry lookup fails, use the release tarball directly:
 
 ```bash
-ddev add-on get generoi/ddev-worktree --version v0.1.0
+ddev add-on get https://github.com/generoi/ddev-worktree/tarball/v0.1.1
+```
+
+Or from a local checkout while developing the add-on:
+
+```bash
+ddev add-on get /path/to/ddev-worktree
 ```
 
 ## Project setup (Bedrock)
