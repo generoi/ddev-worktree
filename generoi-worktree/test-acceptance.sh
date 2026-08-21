@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# #ddev-generated: If you want to edit and own this file, remove this line.
 # generoi-worktree acceptance tests (run from a git worktree checkout)
 set -euo pipefail
 

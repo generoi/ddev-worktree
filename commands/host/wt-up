@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+## #ddev-generated: If you want to edit and own this file, remove this line.
 ## Description: Start a worktree sidecar (shared DB + Caddy rewrite by default)
 ## Usage: wt-up [--db=shared|clone|refresh] [--port=808x] [--no-deps]
 ## Example: "ddev wt-up" or "ddev wt-up --db=clone"

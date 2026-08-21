@@ -20,10 +20,10 @@ pre_install_actions: []
 post_install_actions:
   - |
     #ddev-description: Make generoi-worktree commands executable
-    chmod +x .ddev/commands/host/wt-up .ddev/commands/host/wt-down .ddev/commands/host/wt-list .ddev/commands/host/wt-port .ddev/commands/host/wt-wp .ddev/commands/host/wt-guard
+    chmod +x "$DDEV_APPROOT/.ddev/commands/host/wt-up" "$DDEV_APPROOT/.ddev/commands/host/wt-down" "$DDEV_APPROOT/.ddev/commands/host/wt-list" "$DDEV_APPROOT/.ddev/commands/host/wt-port" "$DDEV_APPROOT/.ddev/commands/host/wt-wp" "$DDEV_APPROOT/.ddev/commands/host/wt-guard"
   - |
     #ddev-description: Remind to add wt-guard pre-start hook
-    if ! grep -q 'wt-guard' .ddev/config.yaml 2>/dev/null; then
+    if ! grep -q 'wt-guard' "$DDEV_APPROOT/.ddev/config.yaml" 2>/dev/null; then
       echo ""
       echo "generoi-worktree: add this to .ddev/config.yaml under hooks.pre-start:"
       echo '    - exec-host: "bash .ddev/commands/host/wt-guard"'
@@ -34,4 +34,4 @@ post_install_actions:
 removal_actions:
   - |
     #ddev-description: Stop any running worktree sidecar
-    bash .ddev/commands/host/wt-down >/dev/null 2>&1 || true
+    bash "$DDEV_APPROOT/.ddev/commands/host/wt-down" >/dev/null 2>&1 || true

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+## #ddev-generated: If you want to edit and own this file, remove this line.
 ## Description: Block ddev start on git worktrees (use ddev wt-up instead)
 ## Usage: (internal) wt-guard
 ## OSTypes: linux,darwin

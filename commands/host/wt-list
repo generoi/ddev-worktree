@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+## #ddev-generated: If you want to edit and own this file, remove this line.
 ## Description: List generoi worktree sidecars for this canonical project
 ## Usage: wt-list
 ## Example: "ddev wt-list"

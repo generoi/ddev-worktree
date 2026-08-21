@@ -1,3 +1,4 @@
+# #ddev-generated: If you want to edit and own this file, remove this line.
 # Caddy with replace-response for worktree URL rewriting (headers + body).
 FROM caddy:2.11-builder AS builder
 RUN xcaddy build --with github.com/caddyserver/replace-response

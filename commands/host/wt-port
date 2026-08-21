@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+## #ddev-generated: If you want to edit and own this file, remove this line.
 ## Description: Print this worktree sidecar URL (WT_URL)
 ## Usage: wt-port
 ## Example: "ddev wt-port"

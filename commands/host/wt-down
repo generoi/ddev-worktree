@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+## #ddev-generated: If you want to edit and own this file, remove this line.
 ## Description: Stop this worktree's sidecar container
 ## Usage: wt-down
 ## Example: "ddev wt-down"

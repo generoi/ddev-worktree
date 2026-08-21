@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+## #ddev-generated: If you want to edit and own this file, remove this line.
 ## Description: Run wp-cli in this worktree's sidecar
 ## Usage: wt-wp [flags] [args]
 ## Example: "ddev wt-wp plugin list" or "ddev wt-wp --url=https://nat.herrfors.ddev.site option get home"
