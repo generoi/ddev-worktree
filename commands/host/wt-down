@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+## Description: Stop this worktree's sidecar container
+## Usage: wt-down
+## Example: "ddev wt-down"
+## OSTypes: linux,darwin
+## ProjectTypes: php,wordpress
+
+set -euo pipefail
+
+# shellcheck disable=SC1091
+source "$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)/.ddev/generoi-worktree/lib.sh"
+
+wt_require docker
+wt_ensure_ddev_project
+wt_sidecar_stop

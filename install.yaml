@@ -1,0 +1,37 @@
+name: generoi-worktree
+
+ddev_version_constraint: '>= v1.24.0'
+
+project_files:
+  - generoi-worktree/lib.sh
+  - generoi-worktree/Dockerfile.caddy
+  - generoi-worktree/test-acceptance.sh
+  - commands/host/wt-up
+  - commands/host/wt-down
+  - commands/host/wt-list
+  - commands/host/wt-port
+  - commands/host/wt-wp
+  - commands/host/wt-guard
+
+global_files: []
+
+pre_install_actions: []
+
+post_install_actions:
+  - |
+    #ddev-description: Make generoi-worktree commands executable
+    chmod +x .ddev/commands/host/wt-up .ddev/commands/host/wt-down .ddev/commands/host/wt-list .ddev/commands/host/wt-port .ddev/commands/host/wt-wp .ddev/commands/host/wt-guard
+  - |
+    #ddev-description: Remind to add wt-guard pre-start hook
+    if ! grep -q 'wt-guard' .ddev/config.yaml 2>/dev/null; then
+      echo ""
+      echo "generoi-worktree: add this to .ddev/config.yaml under hooks.pre-start:"
+      echo '    - exec-host: "bash .ddev/commands/host/wt-guard"'
+      echo ""
+      echo "Also commit config/environments/wt.php and the application.php hook (see README)."
+    fi
+
+removal_actions:
+  - |
+    #ddev-description: Stop any running worktree sidecar
+    bash .ddev/commands/host/wt-down >/dev/null 2>&1 || true

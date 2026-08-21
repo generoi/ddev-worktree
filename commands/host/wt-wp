@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+## Description: Run wp-cli in this worktree's sidecar
+## Usage: wt-wp [flags] [args]
+## Example: "ddev wt-wp plugin list" or "ddev wt-wp --url=https://nat.herrfors.ddev.site option get home"
+## OSTypes: linux,darwin
+## ProjectTypes: php,wordpress
+
+set -euo pipefail
+
+# shellcheck disable=SC1091
+source "$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)/.ddev/generoi-worktree/lib.sh"
+
+wt_require docker
+wt_ensure_ddev_project
+
+if ! wt_sidecar_running; then
+  echo "generoi-worktree: sidecar is not running (run ddev wt-up)" >&2
+  exit 1
+fi
+
+container=$(wt_container_name)
+quoted=$(printf '%q ' "$@")
+exec_cmd=(bash -lc "cd /var/www/html && wp --path=web/wp ${quoted}")
+
+if [[ -t 0 ]]; then
+  docker exec -it "$container" "${exec_cmd[@]}"
+else
+  docker exec -i "$container" "${exec_cmd[@]}"
+fi

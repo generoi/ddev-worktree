@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+## Description: Print this worktree sidecar URL (WT_URL)
+## Usage: wt-port
+## Example: "ddev wt-port"
+## OSTypes: linux,darwin
+## ProjectTypes: php,wordpress
+
+set -euo pipefail
+
+# shellcheck disable=SC1091
+source "$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)/.ddev/generoi-worktree/lib.sh"
+
+wt_ensure_ddev_project
+
+if ! wt_read_state >/dev/null 2>&1; then
+  echo "generoi-worktree: no active sidecar (run ddev wt-up)" >&2
+  exit 1
+fi
+
+echo "WT_URL=$(wt_state_value url)"
+echo "WT_HOST=$(wt_state_value primary_hostname)"
+port=$(wt_state_value port 2>/dev/null || true)
+[[ -n "$port" ]] && echo "WT_PORT=${port}"

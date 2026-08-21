@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+## Description: Start a worktree sidecar (shared DB + Caddy rewrite by default)
+## Usage: wt-up [--db=shared|clone|refresh] [--port=808x] [--no-deps]
+## Example: "ddev wt-up" or "ddev wt-up --db=clone"
+## OSTypes: linux,darwin
+## ProjectTypes: php,wordpress
+
+set -euo pipefail
+
+APPROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+# shellcheck disable=SC1091
+source "$APPROOT/.ddev/generoi-worktree/lib.sh"
+
+DB_MODE=shared
+DB_REFRESH=false
+SKIP_DEPS=false
+WT_PORT=""
+
+for arg in "$@"; do
+  case "$arg" in
+    --db=shared) DB_MODE=shared ;;
+    --db=clone) DB_MODE=clone ;;
+    --db=refresh) DB_MODE=clone; DB_REFRESH=true ;;
+    --port=*) WT_PORT="${arg#*=}" ;;
+    --no-deps) SKIP_DEPS=true ;;
+    -h|--help)
+      echo "Usage: ddev wt-up [--db=shared|clone|refresh] [--port=808x] [--no-deps]"
+      echo ""
+      echo "  shared (default)  shared canonical DB; Caddy rewrites URLs with :port"
+      echo "  clone             cloned DB + Traefik worktree hostnames (full isolation)"
+      echo "  refresh           re-clone DB (implies clone)"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $arg" >&2
+      exit 1
+      ;;
+  esac
+done
+
+wt_require docker
+wt_require jq
+wt_ensure_ddev_project
+
+if wt_is_canonical_checkout; then
+  echo "generoi-worktree: you are on the canonical checkout; use 'ddev start' for daily dev." >&2
+  echo "generoi-worktree: create a git worktree first, then run 'ddev wt-up' there." >&2
+  exit 1
+fi
+
+wt_ensure_canonical_running
+wt_bootstrap_links
+
+if [[ "$SKIP_DEPS" == false ]]; then
+  wt_install_deps
+fi
+
+wt_sidecar_start "$DB_MODE" "$DB_REFRESH" "$WT_PORT"
+
+echo "generoi-worktree: ready (db=${DB_MODE})"
