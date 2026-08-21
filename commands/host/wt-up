@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
 ## #ddev-generated: If you want to edit and own this file, remove this line.
-## Description: Start a worktree sidecar (shared DB + Caddy rewrite by default)
-## Usage: wt-up [--db=shared|clone|refresh] [--port=808x] [--no-deps]
-## Example: "ddev wt-up" or "ddev wt-up --db=clone"
+## Description: Start a worktree sidecar (shared DB + Caddy URL rewrite)
+## Usage: wt-up [--port=808x] [--no-deps]
+## Example: "ddev wt-up" or "ddev wt-up --port=8083 --no-deps"
 ## OSTypes: linux,darwin
 ## ProjectTypes: php,wordpress
 
@@ -13,24 +13,19 @@ APPROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
 # shellcheck disable=SC1091
 source "$APPROOT/.ddev/generoi-worktree/lib.sh"
 
-DB_MODE=shared
-DB_REFRESH=false
 SKIP_DEPS=false
 WT_PORT=""
 
 for arg in "$@"; do
   case "$arg" in
-    --db=shared) DB_MODE=shared ;;
-    --db=clone) DB_MODE=clone ;;
-    --db=refresh) DB_MODE=clone; DB_REFRESH=true ;;
     --port=*) WT_PORT="${arg#*=}" ;;
     --no-deps) SKIP_DEPS=true ;;
+    --db=*)
+      echo "generoi-worktree: --db= is no longer supported (always shared DB + Caddy :port)" >&2
+      exit 1
+      ;;
     -h|--help)
-      echo "Usage: ddev wt-up [--db=shared|clone|refresh] [--port=808x] [--no-deps]"
-      echo ""
-      echo "  shared (default)  shared canonical DB; Caddy rewrites URLs with :port"
-      echo "  clone             cloned DB + Traefik worktree hostnames (full isolation)"
-      echo "  refresh           re-clone DB (implies clone)"
+      echo "Usage: ddev wt-up [--port=808x] [--no-deps]"
       exit 0
       ;;
     *)
@@ -57,6 +52,6 @@ if [[ "$SKIP_DEPS" == false ]]; then
   wt_install_deps
 fi
 
-wt_sidecar_start "$DB_MODE" "$DB_REFRESH" "$WT_PORT"
+wt_sidecar_start "$WT_PORT"
 
-echo "generoi-worktree: ready (db=${DB_MODE})"
+echo "generoi-worktree: ready"

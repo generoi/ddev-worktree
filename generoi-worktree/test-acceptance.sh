@@ -93,10 +93,10 @@ else
   fail "web/wp missing or symlinked"
 fi
 
-if [[ ! -f "$APPROOT/web/app/mu-plugins/generoi-worktree-sidecar.php" ]] && [[ ! -f "$APPROOT/web/app/sunrise.php" ]]; then
-  pass "no PHP URL shim files"
+if [[ ! -f "$APPROOT/web/app/mu-plugins/generoi-worktree-sidecar.php" ]]; then
+  pass "no legacy PHP URL shim"
 else
-  fail "PHP URL shim files should not exist"
+  fail "legacy mu-plugin should not exist"
 fi
 
 if [[ -f "$APPROOT/config/environments/wt.php" ]]; then
@@ -203,13 +203,6 @@ else
   pass "caddy removed after wt-down"
 fi
 if [[ -f "$WT_STATE_FILE" ]]; then fail "state file still exists"; else pass "state file removed"; fi
-
-suffix=$(wt_suffix)
-if docker run --rm -v ddev-global-cache:/cache alpine:3 test -f "/cache/traefik/config/generoi-wt-${suffix}.yaml"; then
-  fail "traefik config still exists after wt-down (shared mode should not register)"
-else
-  pass "no traefik config in shared mode"
-fi
 
 echo ""
 echo "[10] wt-up on canonical should refuse"

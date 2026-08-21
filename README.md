@@ -62,8 +62,8 @@ ddev wt-down
 
 | Command | Description |
 |---------|-------------|
-| `ddev wt-up` | Shared DB + Caddy on `:808x` (default) |
-| `ddev wt-up --db=clone` | Cloned DB + Traefik wt hostnames |
+| `ddev wt-up` | Shared DB + Caddy on `:808x` |
+| `ddev wt-up --port=8083` | Pin host port |
 | `ddev wt-up --no-deps` | Skip composer/pnpm |
 | `ddev wt-port` | Print `WT_URL` / `WT_PORT` |
 | `ddev wt-wp …` | WP-CLI in sidecar |
