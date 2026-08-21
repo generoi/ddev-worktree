@@ -7,13 +7,13 @@ Shared MariaDB by default; Caddy (`replace-response`) rewrites browser URLs to `
 ## Install
 
 ```bash
-ddev add-on get generoi/ddev-worktree --version v0.1.1
+ddev add-on get generoi/ddev-worktree --version v0.1.3
 ```
 
 If the add-on registry lookup fails, use the release tarball directly:
 
 ```bash
-ddev add-on get https://github.com/generoi/ddev-worktree/tarball/v0.1.1
+ddev add-on get https://github.com/generoi/ddev-worktree/tarball/v0.1.3
 ```
 
 Or from a local checkout while developing the add-on:
@@ -24,28 +24,13 @@ ddev add-on get /path/to/ddev-worktree
 
 ## Project setup (Bedrock)
 
-1. **`.ddev/config.yaml`** — block `ddev start` in worktrees:
+1. **`.gitignore`** — `.ddev/wt/` (generated Caddyfile + state).
 
-```yaml
-hooks:
-  pre-start:
-    - exec-host: "bash .ddev/commands/host/wt-guard"
-```
+2. **Multisite** — list subsite hostnames in `additional_hostnames` (e.g. `nat.herrfors`).
 
-2. **`config/application.php`** — before URL constants, normalize proxy host headers:
+The add-on installs `config.generoi-worktree.yaml` with the `wt-guard` pre-start hook — no manual `config.yaml` edits.
 
-```php
-if (! empty($_SERVER['HTTP_HOST'])) {
-    $_SERVER['HTTP_HOST'] = preg_replace('/:\d+$/', '', $_SERVER['HTTP_HOST']);
-}
-if (! empty($_SERVER['HTTP_X_FORWARDED_PORT'])) {
-    $_SERVER['SERVER_PORT'] = $_SERVER['HTTP_X_FORWARDED_PORT'];
-}
-```
-
-3. **`.gitignore`** — `.ddev/wt/` (generated Caddyfile + state).
-
-5. **Multisite** — list subsite hostnames in `additional_hostnames` (e.g. `nat.herrfors`).
+No Bedrock changes required — Caddy sends `{http.request.host}` (hostname without `:port`) to PHP and rewrites `:808x` back into browser responses.
 
 ## Usage
 

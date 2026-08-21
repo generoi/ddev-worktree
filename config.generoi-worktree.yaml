@@ -1,0 +1,5 @@
+# #ddev-generated
+# generoi-worktree: block ddev start in git worktrees (use ddev wt-up).
+hooks:
+  pre-start:
+    - exec-host: "bash .ddev/commands/host/wt-guard"

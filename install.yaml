@@ -3,6 +3,7 @@ name: generoi-worktree
 ddev_version_constraint: '>= v1.24.0'
 
 project_files:
+  - config.generoi-worktree.yaml
   - generoi-worktree/lib.sh
   - generoi-worktree/Dockerfile.caddy
   - generoi-worktree/test-acceptance.sh
@@ -22,13 +23,10 @@ post_install_actions:
     #ddev-description: Make generoi-worktree commands executable
     chmod +x "$DDEV_APPROOT/.ddev/commands/host/wt-up" "$DDEV_APPROOT/.ddev/commands/host/wt-down" "$DDEV_APPROOT/.ddev/commands/host/wt-list" "$DDEV_APPROOT/.ddev/commands/host/wt-port" "$DDEV_APPROOT/.ddev/commands/host/wt-wp" "$DDEV_APPROOT/.ddev/commands/host/wt-guard"
   - |
-    #ddev-description: Remind to add wt-guard pre-start hook
-    if ! grep -q 'wt-guard' "$DDEV_APPROOT/.ddev/config.yaml" 2>/dev/null; then
+    #ddev-description: Remind to gitignore generated worktree state
+    if ! grep -qE '^\.ddev/wt/' "$DDEV_APPROOT/.gitignore" 2>/dev/null; then
       echo ""
-      echo "generoi-worktree: add this to .ddev/config.yaml under hooks.pre-start:"
-      echo '    - exec-host: "bash .ddev/commands/host/wt-guard"'
-      echo ""
-      echo "Also add HTTP_HOST port stripping to config/application.php (see README)."
+      echo "generoi-worktree: add .ddev/wt/ to .gitignore (generated Caddyfile + state)."
     fi
 
 removal_actions:

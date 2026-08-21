@@ -99,10 +99,17 @@ else
   fail "legacy mu-plugin should not exist"
 fi
 
-if grep -q "preg_replace('/:\\\\d+\$/'" "$APPROOT/config/application.php" 2>/dev/null; then
-  pass "application.php strips :port from HTTP_HOST"
+if grep -q 'header_up Host {http.request.host}' "$APPROOT/.ddev/wt/Caddyfile" 2>/dev/null; then
+  pass "Caddy sends canonical Host to PHP (no :port)"
 else
-  fail "config/application.php should strip :port from HTTP_HOST (see add-on README)"
+  fail ".ddev/wt/Caddyfile missing header_up Host {http.request.host}"
+fi
+
+http_host=$(ddev wt-wp eval 'echo $_SERVER["HTTP_HOST"];' 2>/dev/null | tail -1)
+if [[ "$http_host" == "$WT_HOST" ]] && [[ "$http_host" != *:* ]]; then
+  pass "sidecar PHP HTTP_HOST is ${http_host} (no port)"
+else
+  fail "sidecar PHP HTTP_HOST should be ${WT_HOST} without port (got: ${http_host})"
 fi
 
 echo ""
@@ -147,6 +154,25 @@ echo "[5] HTTPS + multisite (Caddy :${WT_PORT})"
 assert_https_port "main site HTTPS 200" "$WT_HOST" "$WT_PORT" "200"
 assert_https_port "nat subsite HTTPS 200" "$WT_SUB" "$WT_PORT" "200"
 
+html=$(curl -k -s "https://${WT_HOST}:${WT_PORT}/")
+if echo "$html" | grep -qE ":${WT_PORT}:${WT_PORT}"; then
+  fail "HTML contains double :${WT_PORT} port (Caddy rewrite bug)"
+else
+  pass "no double :${WT_PORT} in HTML URLs"
+fi
+
+asset=$(echo "$html" | grep -oE "https://${WT_HOST}:${WT_PORT}/wp/wp-includes/[^\"'<> ]+" | head -1)
+if [[ -n "$asset" ]]; then
+  asset_code=$(curl -k -s -o /dev/null -w '%{http_code}' "$asset")
+  if [[ "$asset_code" == "200" ]]; then
+    pass "asset URL loads (200): $(basename "$asset")"
+  else
+    fail "asset URL ${asset} returned ${asset_code}"
+  fi
+else
+  fail "could not find a wp-includes asset URL in HTML"
+fi
+
 canonical_code=$(curl -k -s -o /dev/null -w '%{http_code}' --resolve "herrfors.ddev.site:443:127.0.0.1" "https://herrfors.ddev.site/")
 if [[ "$canonical_code" =~ ^(200|301|302)$ ]]; then
   pass "canonical still responds via Traefik ($canonical_code)"
@@ -167,11 +193,19 @@ else
 fi
 
 echo ""
-echo "[7] uploads (no prod redirect)"
+echo "[7] uploads (same nginx fallback as canonical DDEV)"
 missing="/app/uploads/generoi-wt-missing-$(date +%s).jpg"
 headers=$(curl -k -sI "https://${WT_HOST}:${WT_PORT}${missing}")
-assert_contains "missing upload returns 404" "404" "$headers"
-assert_not_contains "missing upload does not redirect to herrfors.fi" "herrfors.fi" "$headers"
+if echo "$headers" | grep -qiE '^HTTP/.* (302|301|307|308) '; then
+  pass "missing upload redirects (like canonical DDEV)"
+else
+  fail "missing upload should redirect, got: $(echo "$headers" | head -1)"
+fi
+if echo "$headers" | grep -qi 'herrfors.fi'; then
+  pass "missing upload redirect targets production"
+else
+  fail "missing upload redirect should target herrfors.fi"
+fi
 
 echo ""
 echo "[8] shared DB via wt-wp (canonical URLs in DB)"
