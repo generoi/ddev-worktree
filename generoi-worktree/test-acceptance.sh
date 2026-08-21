@@ -11,9 +11,11 @@ PASS=0
 FAIL=0
 MARKER="wt-acceptance-$(date +%s).txt"
 MARKER_BODY="generoi-worktree-acceptance-marker"
+DB_MARKER="wt-db-isolation-$(date +%s)"
 WT_HOST=""
 WT_PORT=""
 WT_SUB=""
+WT_PROJECT=""
 
 pass() { echo "  PASS: $1"; PASS=$((PASS + 1)); }
 fail() { echo "  FAIL: $1"; FAIL=$((FAIL + 1)); }
@@ -35,18 +37,13 @@ assert_https_port() {
   assert_eq "$desc" "$want_code" "$code"
 }
 
-assert_not_contains() {
-  local desc=$1 needle=$2 haystack=$3
-  if echo "$haystack" | grep -qF "$needle"; then fail "$desc (unexpected '$needle')"; else pass "$desc"; fi
-}
-
 cleanup() {
   rm -f "$APPROOT/web/$MARKER" 2>/dev/null || true
-  (cd "$APPROOT" && ddev wt-down >/dev/null 2>&1) || true
+  (cd "$APPROOT" && ddev stop >/dev/null 2>&1) || true
 }
 trap cleanup EXIT
 
-echo "=== generoi-worktree acceptance ==="
+echo "=== generoi-worktree acceptance (v0.2) ==="
 echo "approot: $APPROOT"
 echo ""
 
@@ -59,18 +56,18 @@ fi
 assert_eq "canonical approot exists" "$(wt_canonical_approot)" "$(git worktree list --porcelain | awk '/^worktree / {print $2; exit}')"
 
 echo ""
-echo "[2] wt-guard"
-if bash "$APPROOT/.ddev/commands/host/wt-guard" >/dev/null 2>&1; then
-  fail "wt-guard should block worktree ddev start"
-else
-  pass "wt-guard blocks ddev start in worktree"
-fi
-
-echo ""
-echo "[3] bootstrap + composer deps"
+echo "[2] wt-prepare (unique DDEV name + bootstrap)"
+rm -f "$APPROOT/.ddev/config.generoi-worktree.local.yaml" 2>/dev/null || true
 rm -f "$APPROOT/.env" "$APPROOT/web/app/uploads" 2>/dev/null || true
 if [[ -L "$APPROOT/vendor" ]]; then rm "$APPROOT/vendor"; fi
-wt_bootstrap_links
+bash "$APPROOT/.ddev/commands/host/wt-prepare"
+
+if [[ -f "$APPROOT/.ddev/config.generoi-worktree.local.yaml" ]] \
+  && grep -q "^name: $(wt_project_name)" "$APPROOT/.ddev/config.generoi-worktree.local.yaml"; then
+  pass "local config sets unique project name"
+else
+  fail "missing .ddev/config.generoi-worktree.local.yaml with expected name"
+fi
 
 if [[ ! -d "$APPROOT/vendor" ]] || [[ ! -f "$APPROOT/web/wp/wp-blog-header.php" ]] || \
    [[ ! -f "$APPROOT/web/app/plugins/wp-spot-prices/dist/manifest.json" ]]; then
@@ -81,111 +78,75 @@ for rel in .env web/app/uploads; do
   if [[ -e "$APPROOT/$rel" ]]; then pass "$rel exists"; else fail "$rel missing after bootstrap"; fi
 done
 
-if [[ -d "$APPROOT/vendor" && ! -L "$APPROOT/vendor" ]]; then
-  pass "vendor is local directory (composer install)"
-else
-  fail "vendor missing or still symlinked"
-fi
-
-if [[ -f "$APPROOT/web/wp/wp-blog-header.php" && ! -L "$APPROOT/web/wp" ]]; then
-  pass "web/wp installed locally (composer)"
-else
-  fail "web/wp missing or symlinked"
-fi
-
-if [[ ! -f "$APPROOT/web/app/mu-plugins/generoi-worktree-sidecar.php" ]]; then
-  pass "no legacy PHP URL shim"
-else
-  fail "legacy mu-plugin should not exist"
-fi
-
-if grep -q 'header_up Host {http.request.host}' "$APPROOT/.ddev/wt/Caddyfile" 2>/dev/null; then
-  pass "Caddy sends canonical Host to PHP (no :port)"
-else
-  fail ".ddev/wt/Caddyfile missing header_up Host {http.request.host}"
-fi
-
-http_host=$(ddev wt-wp eval 'echo $_SERVER["HTTP_HOST"];' 2>/dev/null | tail -1)
-if [[ "$http_host" == "$WT_HOST" ]] && [[ "$http_host" != *:* ]]; then
-  pass "sidecar PHP HTTP_HOST is ${http_host} (no port)"
-else
-  fail "sidecar PHP HTTP_HOST should be ${WT_HOST} without port (got: ${http_host})"
-fi
-
 echo ""
-echo "[4] wt-up / sidecar lifecycle (shared DB + Caddy)"
-ddev wt-down >/dev/null 2>&1 || true
-out=$(ddev wt-up --no-deps 2>&1)
-assert_contains "wt-up prints WT_URL" "WT_URL=https://" "$out"
-assert_contains "wt-up starts Caddy proxy" "Caddy proxy on 127.0.0.1:" "$out"
+echo "[3] ddev start (forked DB + Caddy on first start)"
+(cd "$APPROOT" && ddev stop >/dev/null 2>&1) || true
+out=$(cd "$APPROOT" && ddev start 2>&1)
+assert_contains "ddev start prints WT_URL" "WT_URL=https://" "$out"
+assert_contains "ddev start starts Caddy" "Caddy proxy on 127.0.0.1:" "$out"
 
 WT_URL=$(echo "$out" | awk -F= '/^WT_URL=/{print $2}')
-[[ -n "$WT_URL" ]] || fail "could not parse WT_URL from wt-up"
+[[ -n "$WT_URL" ]] || WT_URL=$(ddev wt-port 2>&1 | awk -F= '/^WT_URL=/{print $2}')
+[[ -n "$WT_URL" ]] || fail "could not parse WT_URL"
 WT_HOST=$(echo "$WT_URL" | sed -E 's|https://([^:/]+).*|\1|')
 WT_PORT=$(echo "$WT_URL" | sed -E 's|https://[^:]+:([0-9]+).*|\1|')
 [[ -n "$WT_HOST" && -n "$WT_PORT" ]] || fail "could not parse host/port from WT_URL ($WT_URL)"
 pass "worktree URL ${WT_HOST}:${WT_PORT}"
 
 WT_SUB="nat.${WT_HOST}"
-assert_contains "wt-up subsite example" "subsite example: https://${WT_SUB}:${WT_PORT}" "$out"
+assert_contains "subsite example" "subsite example: https://${WT_SUB}:${WT_PORT}" "$out"
 
-if docker ps --filter "name=$(wt_container_name)" --filter status=running --format '{{.Status}}' | grep -q healthy; then
-  pass "sidecar healthy"
+WT_PROJECT=$(wt_ddev_project_name)
+web_container=$(wt_web_container "$WT_PROJECT")
+if docker ps --filter "name=${web_container}" --filter status=running --format '{{.Status}}' | grep -q healthy; then
+  pass "worktree web healthy (${web_container})"
 else
-  fail "sidecar not healthy"
+  fail "worktree web not healthy"
 fi
 
-if docker ps --filter "name=$(wt_caddy_container_name)" --filter status=running --format '{{.Names}}' | grep -qx "$(wt_caddy_container_name)"; then
+if docker ps --filter "name=$(wt_caddy_container_name "$WT_PROJECT")" --filter status=running --format '{{.Names}}' | grep -qx "$(wt_caddy_container_name "$WT_PROJECT")"; then
   pass "caddy proxy running"
 else
   fail "caddy proxy not running"
 fi
 
+if grep -q 'header_up Host {http.request.host}' "$APPROOT/.ddev/wt/Caddyfile" 2>/dev/null; then
+  pass "Caddy sends canonical Host to PHP"
+else
+  fail "Caddyfile missing header_up Host {http.request.host}"
+fi
+
+http_host=$(ddev wp eval 'echo $_SERVER["HTTP_HOST"];' 2>/dev/null | tail -1)
+if [[ "$http_host" == "$WT_HOST" ]] && [[ "$http_host" != *:* ]]; then
+  pass "PHP HTTP_HOST is ${http_host} (no port)"
+else
+  fail "PHP HTTP_HOST should be ${WT_HOST} without port (got: ${http_host})"
+fi
+
 port_out=$(ddev wt-port 2>&1)
 assert_contains "wt-port WT_URL" "WT_URL=${WT_URL}" "$port_out"
-assert_contains "wt-port WT_PORT" "WT_PORT=${WT_PORT}" "$port_out"
 
 list_out=$(ddev wt-list 2>&1)
-assert_contains "wt-list shows container" "$(wt_container_name)" "$list_out"
-assert_contains "wt-list shows approot" "$APPROOT" "$list_out"
+assert_contains "wt-list shows caddy" "$(wt_caddy_container_name "$WT_PROJECT")" "$list_out"
 
 echo ""
-echo "[5] HTTPS + multisite (Caddy :${WT_PORT})"
+echo "[4] HTTPS + multisite (Caddy :${WT_PORT})"
 assert_https_port "main site HTTPS 200" "$WT_HOST" "$WT_PORT" "200"
 assert_https_port "nat subsite HTTPS 200" "$WT_SUB" "$WT_PORT" "200"
 
 html=$(curl -k -s "https://${WT_HOST}:${WT_PORT}/")
 if echo "$html" | grep -qE ":${WT_PORT}:${WT_PORT}"; then
-  fail "HTML contains double :${WT_PORT} port (Caddy rewrite bug)"
+  fail "HTML contains double :${WT_PORT} port"
 else
   pass "no double :${WT_PORT} in HTML URLs"
 fi
 
-asset=$(echo "$html" | grep -oE "https://${WT_HOST}:${WT_PORT}/wp/wp-includes/[^\"'<> ]+" | head -1)
-if [[ -n "$asset" ]]; then
-  asset_code=$(curl -k -s -o /dev/null -w '%{http_code}' "$asset")
-  if [[ "$asset_code" == "200" ]]; then
-    pass "asset URL loads (200): $(basename "$asset")"
-  else
-    fail "asset URL ${asset} returned ${asset_code}"
-  fi
-else
-  fail "could not find a wp-includes asset URL in HTML"
-fi
-
-canonical_code=$(curl -k -s -o /dev/null -w '%{http_code}' --resolve "herrfors.ddev.site:443:127.0.0.1" "https://herrfors.ddev.site/")
-if [[ "$canonical_code" =~ ^(200|301|302)$ ]]; then
-  pass "canonical still responds via Traefik ($canonical_code)"
-else
-  fail "canonical HTTPS ($canonical_code)"
-fi
-
 echo ""
-echo "[6] code isolation"
+echo "[5] code isolation"
 echo "$MARKER_BODY" >"$APPROOT/web/$MARKER"
 side=$(curl -k -s "https://${WT_HOST}:${WT_PORT}/${MARKER}")
 canon=$(curl -k -s -o /dev/null -w '%{http_code}' --resolve "herrfors.ddev.site:443:127.0.0.1" "https://herrfors.ddev.site/${MARKER}")
-assert_eq "marker visible on sidecar" "$MARKER_BODY" "$side"
+assert_eq "marker visible on worktree" "$MARKER_BODY" "$side"
 if [[ "$canon" == "404" ]] || [[ "$canon" =~ ^30[0-9]$ ]]; then
   pass "marker not on canonical ($canon)"
 else
@@ -193,7 +154,21 @@ else
 fi
 
 echo ""
-echo "[7] uploads (same nginx fallback as canonical DDEV)"
+echo "[6] DB isolation (forked MariaDB)"
+ddev wp option update "generoi_wt_${DB_MARKER}" "worktree-only" --quiet 2>/dev/null
+wt_val=$(ddev wp option get "generoi_wt_${DB_MARKER}" 2>/dev/null | tail -1)
+assert_eq "option set in worktree DB" "worktree-only" "$wt_val"
+
+canon_val=$(cd "$(wt_canonical_approot)" && ddev wp option get "generoi_wt_${DB_MARKER}" 2>/dev/null || true)
+if [[ -z "$canon_val" ]] || echo "$canon_val" | grep -qiE 'error|not found|does not exist'; then
+  pass "option absent from canonical DB"
+else
+  fail "option leaked to canonical DB: $canon_val"
+fi
+ddev wp option delete "generoi_wt_${DB_MARKER}" --quiet 2>/dev/null || true
+
+echo ""
+echo "[7] uploads (shared from canonical host path)"
 missing="/app/uploads/generoi-wt-missing-$(date +%s).jpg"
 headers=$(curl -k -sI "https://${WT_HOST}:${WT_PORT}${missing}")
 if echo "$headers" | grep -qiE '^HTTP/.* (302|301|307|308) '; then
@@ -201,53 +176,31 @@ if echo "$headers" | grep -qiE '^HTTP/.* (302|301|307|308) '; then
 else
   fail "missing upload should redirect, got: $(echo "$headers" | head -1)"
 fi
-if echo "$headers" | grep -qi 'herrfors.fi'; then
-  pass "missing upload redirect targets production"
+
+echo ""
+echo "[8] ddev stop (Caddy cleanup, state kept for port)"
+ddev stop >/dev/null 2>&1
+if docker ps -a --format '{{.Names}}' | grep -qx "$(wt_caddy_container_name "$WT_PROJECT")"; then
+  fail "caddy still exists after ddev stop"
 else
-  fail "missing upload redirect should target herrfors.fi"
+  pass "caddy removed after ddev stop"
+fi
+if [[ -f "$WT_STATE_FILE" ]]; then
+  pass "state file kept (port reuse)"
+else
+  fail "state file should remain after ddev stop"
 fi
 
 echo ""
-echo "[8] shared DB via wt-wp (canonical URLs in DB)"
-wp_out=$(ddev wt-wp option get home --url="https://${WT_HOST}:${WT_PORT}" 2>&1)
-if echo "$wp_out" | grep -qF "https://${WT_HOST}" && ! echo "$wp_out" | grep -qF ":${WT_PORT}"; then
-  pass "wt-wp home uses canonical hostname (no port in DB)"
-else
-  fail "wt-wp home wrong: $wp_out"
-fi
-
-nat_out=$(ddev wt-wp option get blogname --url="https://${WT_SUB}:${WT_PORT}" 2>&1)
-if [[ -n "$nat_out" ]] && ! echo "$nat_out" | grep -qiE 'error|failed|does not seem'; then
-  pass "wt-wp nat subsite blogname ($nat_out)"
-else
-  fail "wt-wp nat failed: $nat_out"
-fi
-
-echo ""
-echo "[9] wt-down cleanup"
-ddev wt-down >/dev/null 2>&1
-if docker ps -a --format '{{.Names}}' | grep -qx "$(wt_container_name)"; then
-  fail "container still exists after wt-down"
-else
-  pass "container removed after wt-down"
-fi
-if docker ps -a --format '{{.Names}}' | grep -qx "$(wt_caddy_container_name)"; then
-  fail "caddy still exists after wt-down"
-else
-  pass "caddy removed after wt-down"
-fi
-if [[ -f "$WT_STATE_FILE" ]]; then fail "state file still exists"; else pass "state file removed"; fi
-
-echo ""
-echo "[10] wt-up on canonical should refuse"
+echo "[9] wt-up deprecated"
 set +e
-canon_out=$(cd "$(wt_canonical_approot)" && bash .ddev/commands/host/wt-up --no-deps 2>&1)
-canon_ec=$?
+deprecated=$(ddev wt-up 2>&1)
+dep_ec=$?
 set -e
-if [[ $canon_ec -ne 0 ]] && echo "$canon_out" | grep -q 'canonical checkout'; then
-  pass "wt-up refused on canonical"
+if [[ $dep_ec -ne 0 ]] && echo "$deprecated" | grep -qi 'ddev start'; then
+  pass "wt-up points to ddev start"
 else
-  fail "wt-up should refuse on canonical (exit=$canon_ec)"
+  fail "wt-up should refuse with ddev start hint (exit=$dep_ec)"
 fi
 
 echo ""

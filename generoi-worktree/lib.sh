@@ -6,6 +6,7 @@ set -euo pipefail
 
 WT_STATE_DIR=".ddev/wt"
 WT_STATE_FILE="${WT_STATE_DIR}/state.json"
+WT_LOCAL_CONFIG=".ddev/config.generoi-worktree.local.yaml"
 WT_PORT_MIN=8081
 WT_PORT_MAX=8099
 
@@ -55,15 +56,40 @@ wt_suffix() {
   echo "$(wt_approot)" | cksum | awk '{print $1}'
 }
 
-wt_container_name() {
-  local name suffix
-  name=$(wt_canonical_name)
-  suffix=$(wt_suffix)
-  echo "ddev-${name}-wt-${suffix}"
+wt_project_name() {
+  echo "$(wt_canonical_name)-wt-$(wt_suffix)"
+}
+
+wt_ddev_project_name() {
+  wt_require ddev
+  ddev describe -j 2>/dev/null | jq -r '.raw.name // empty'
+}
+
+wt_web_container() {
+  local project=${1:-}
+  if [[ -z "$project" ]]; then
+    project=$(wt_ddev_project_name)
+  fi
+  echo "ddev-${project}-web"
 }
 
 wt_caddy_container_name() {
-  echo "$(wt_container_name)-caddy"
+  local project=${1:-}
+  if [[ -z "$project" ]]; then
+    if wt_read_state >/dev/null 2>&1; then
+      project=$(wt_state_value project 2>/dev/null || true)
+    fi
+    project=${project:-$(wt_ddev_project_name)}
+  fi
+  echo "ddev-${project}-wt-caddy"
+}
+
+wt_network_name() {
+  local project=${1:-}
+  if [[ -z "$project" ]]; then
+    project=$(wt_ddev_project_name)
+  fi
+  echo "ddev-${project}_default"
 }
 
 wt_port_in_use() {
@@ -87,6 +113,14 @@ wt_allocate_port() {
     echo "$requested"
     return
   fi
+  if wt_read_state >/dev/null 2>&1; then
+    local saved
+    saved=$(wt_state_value port 2>/dev/null || true)
+    if [[ -n "$saved" ]] && ! wt_port_in_use "$saved"; then
+      echo "$saved"
+      return
+    fi
+  fi
   local port
   for port in $(seq "$WT_PORT_MIN" "$WT_PORT_MAX"); do
     if ! wt_port_in_use "$port"; then
@@ -109,14 +143,6 @@ wt_ensure_canonical_running() {
       exit 1
     }
   fi
-  if ! docker ps --format '{{.Names}}' | grep -qx "ddev-${name}-web"; then
-    echo "generoi-worktree: canonical web container is not running; run 'ddev start' in ${canonical_approot}" >&2
-    exit 1
-  fi
-}
-
-wt_network_name() {
-  echo "ddev-$(wt_canonical_name)_default"
 }
 
 wt_read_state() {
@@ -130,10 +156,40 @@ wt_state_value() {
   jq -r --arg k "$key" '.[$k] // empty' "$WT_STATE_FILE"
 }
 
-wt_canonical_hosts() {
+wt_canonical_hosts_from_config() {
+  local canonical_approot=$1
+  local name primary line host
+  name=$(awk '/^name:[[:space:]]*/ {print $2; exit}' "$canonical_approot/.ddev/config.yaml")
+  primary="${name}.ddev.site"
+  echo "$primary"
+  awk '
+    /^additional_hostnames:/ { in_hosts=1; next }
+    in_hosts && /^  - / {
+      gsub(/^  - /, "", $0)
+      gsub(/'\''|"/, "", $0)
+      if ($0 ~ /\.ddev\.site$/) print $0; else print $0 ".ddev.site"
+      next
+    }
+    in_hosts && /^[^ #]/ { exit }
+  ' "$canonical_approot/.ddev/config.yaml"
+}
+
+wt_canonical_hosts_from_web() {
   local canonical_web=$1
   docker inspect "$canonical_web" --format '{{range .Config.Env}}{{println .}}{{end}}' \
     | awk -F= '/^DDEV_HOSTNAME=/{print $2}' | tr ',' '\n' | sed '/^$/d'
+}
+
+wt_canonical_hosts() {
+  local canonical_approot canonical_name canonical_web
+  canonical_approot=$(wt_canonical_approot)
+  canonical_name=$(wt_canonical_name)
+  canonical_web="ddev-${canonical_name}-web"
+  if docker ps --format '{{.Names}}' | grep -qx "$canonical_web"; then
+    wt_canonical_hosts_from_web "$canonical_web"
+  else
+    wt_canonical_hosts_from_config "$canonical_approot"
+  fi
 }
 
 wt_caddy_image() {
@@ -203,15 +259,14 @@ EOF
 }
 
 wt_caddy_start() {
-  local port=$1 network=$2
+  local port=$1 network=$2 web_container=$3 project=$4
   local approot caddy caddyfile image
   approot=$(wt_approot)
-  caddy=$(wt_caddy_container_name)
+  caddy=$(wt_caddy_container_name "$project")
   caddyfile="${approot}/.ddev/wt/Caddyfile"
   image=$(wt_caddy_image)
 
   wt_ensure_caddy_image
-
   docker rm -f "$caddy" >/dev/null 2>&1 || true
 
   docker run -d \
@@ -219,13 +274,31 @@ wt_caddy_start() {
     --network "$network" \
     --label "com.generoi.worktree=true" \
     --label "com.generoi.worktree-proxy=caddy" \
+    --label "com.generoi.canonical=$(wt_canonical_name)" \
+    --label "com.generoi.approot=${approot}" \
+    --label "com.generoi.project=${project}" \
     -v "${caddyfile}:/etc/caddy/Caddyfile:ro" \
     -v "ddev-global-cache:/mnt/ddev-global-cache:ro" \
     -p "127.0.0.1:${port}:443" \
     "$image" \
     caddy run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 
-  echo "generoi-worktree: Caddy proxy on 127.0.0.1:${port} -> $(wt_container_name)"
+  echo "generoi-worktree: Caddy proxy on 127.0.0.1:${port} -> ${web_container}"
+}
+
+wt_caddy_stop() {
+  local caddy project
+  if wt_read_state >/dev/null 2>&1; then
+    caddy=$(wt_state_value caddy_container 2>/dev/null || true)
+  fi
+  if [[ -z "${caddy:-}" ]]; then
+    project=$(wt_ddev_project_name 2>/dev/null || wt_project_name)
+    caddy=$(wt_caddy_container_name "$project")
+  fi
+  if docker ps -a --format '{{.Names}}' | grep -qx "$caddy"; then
+    docker rm -f "$caddy" >/dev/null
+    echo "generoi-worktree: stopped ${caddy}"
+  fi
 }
 
 wt_bootstrap_links() {
@@ -234,7 +307,6 @@ wt_bootstrap_links() {
   approot=$(wt_approot)
 
   if [[ "$canonical" == "$approot" ]]; then
-    echo "generoi-worktree: bootstrap skipped on canonical checkout"
     return 0
   fi
 
@@ -276,6 +348,163 @@ wt_bootstrap_links() {
     cp -f "$canonical/.ddev/nginx/redirect-uploads.conf" "$approot/.ddev/nginx/redirect-uploads.conf"
     echo "generoi-worktree: copied .ddev/nginx/redirect-uploads.conf from canonical"
   fi
+}
+
+wt_write_local_config() {
+  local name
+  name=$(wt_project_name)
+  mkdir -p "$(dirname "$WT_LOCAL_CONFIG")"
+  cat >"$WT_LOCAL_CONFIG" <<EOF
+# #ddev-generated
+# generoi-worktree: unique DDEV project name for this git worktree.
+name: ${name}
+EOF
+  echo "generoi-worktree: DDEV project name ${name} (${WT_LOCAL_CONFIG})"
+}
+
+wt_prepare() {
+  wt_ensure_ddev_project
+  if wt_is_canonical_checkout; then
+    rm -f "$WT_LOCAL_CONFIG"
+    return 0
+  fi
+  wt_write_local_config
+  wt_bootstrap_links
+}
+
+wt_db_table_count() {
+  wt_require ddev
+  ddev mysql -sN -e \
+    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='db'" 2>/dev/null \
+    | tail -1
+}
+
+wt_db_is_empty() {
+  local count
+  count=$(wt_db_table_count 2>/dev/null || echo 0)
+  [[ "${count:-0}" -eq 0 ]]
+}
+
+wt_seed_db_from_canonical() {
+  local canonical canonical_name tmp
+  wt_ensure_canonical_running
+  canonical=$(wt_canonical_approot)
+  canonical_name=$(wt_canonical_name)
+  tmp=$(mktemp "${TMPDIR:-/tmp}/generoi-wt-db.XXXXXX.sql.gz")
+  echo "generoi-worktree: cloning database from canonical '${canonical_name}' (no search-replace)..."
+  (cd "$canonical" && ddev export-db --file="$tmp")
+  ddev import-db --file="$tmp"
+  rm -f "$tmp"
+  echo "generoi-worktree: database seeded from canonical"
+}
+
+wt_seed_db_if_empty() {
+  if wt_is_canonical_checkout; then
+    return 0
+  fi
+  if ! wt_db_is_empty; then
+    return 0
+  fi
+  wt_seed_db_from_canonical
+}
+
+wt_sync_db() {
+  if wt_is_canonical_checkout; then
+    echo "generoi-worktree: wt-sync-db is for worktrees only" >&2
+    exit 1
+  fi
+  wt_seed_db_from_canonical
+}
+
+wt_post_start() {
+  local project web_container network port canonical_name suffix approot
+  local -a canonical_hosts=()
+  local primary_host host_list url
+
+  wt_ensure_ddev_project
+  if wt_is_canonical_checkout; then
+    return 0
+  fi
+
+  wt_require ddev
+  wt_require jq
+  wt_require docker
+
+  project=$(wt_ddev_project_name)
+  [[ -n "$project" ]] || {
+    echo "generoi-worktree: could not read DDEV project name" >&2
+    exit 1
+  }
+
+  web_container=$(wt_web_container "$project")
+  network=$(wt_network_name "$project")
+  canonical_name=$(wt_canonical_name)
+  suffix=$(wt_suffix)
+  approot=$(wt_approot)
+
+  if ! docker ps --format '{{.Names}}' | grep -qx "$web_container"; then
+    echo "generoi-worktree: web container ${web_container} is not running" >&2
+    exit 1
+  fi
+
+  wt_seed_db_if_empty
+
+  while IFS= read -r _host; do
+    [[ -n "$_host" ]] && canonical_hosts+=("$_host")
+  done < <(wt_canonical_hosts)
+  primary_host="${canonical_hosts[0]}"
+
+  port=$(wt_allocate_port "")
+  wt_write_caddyfile "$port" "$web_container" "$canonical_name" "${canonical_hosts[@]}"
+  wt_caddy_start "$port" "$network" "$web_container" "$project"
+
+  url="https://${primary_host}:${port}"
+  host_list=$(printf '%s,' "${canonical_hosts[@]}")
+  host_list=${host_list%,}
+
+  mkdir -p "$WT_STATE_DIR"
+  jq -n \
+    --arg caddy "$(wt_caddy_container_name "$project")" \
+    --arg suffix "$suffix" \
+    --arg canonical_name "$canonical_name" \
+    --arg canonical_approot "$(wt_canonical_approot)" \
+    --arg approot "$approot" \
+    --arg project "$project" \
+    --arg web_container "$web_container" \
+    --arg primary "$primary_host" \
+    --arg hostnames "$host_list" \
+    --arg url "$url" \
+    --argjson port "$port" \
+    --argjson db_seeded true \
+    '{
+      caddy_container: $caddy,
+      suffix: $suffix,
+      canonical_name: $canonical_name,
+      canonical_approot: $canonical_approot,
+      approot: $approot,
+      project: $project,
+      web_container: $web_container,
+      db_mode: "fork",
+      db_seeded: $db_seeded,
+      port: $port,
+      primary_hostname: $primary,
+      hostnames: $hostnames,
+      url: $url
+    }' >"$WT_STATE_FILE"
+
+  echo "generoi-worktree: browse ${url}"
+  if ((${#canonical_hosts[@]} > 1)); then
+    echo "generoi-worktree: subsite example: https://${canonical_hosts[1]}:${port}"
+  fi
+  echo "WT_URL=${url}"
+}
+
+wt_pre_stop() {
+  wt_ensure_ddev_project
+  if wt_is_canonical_checkout; then
+    return 0
+  fi
+  wt_caddy_stop
 }
 
 wt_install_js_deps() {
@@ -329,161 +558,17 @@ wt_install_deps() {
   wt_install_js_deps "$approot"
 }
 
-wt_sidecar_running() {
-  docker ps --format '{{.Names}}' | grep -qx "$(wt_container_name)"
+# Legacy sidecar API (v0.1) — removed in v0.2; keep stubs for clearer errors.
+wt_container_name() {
+  wt_web_container
 }
 
 wt_sidecar_stop() {
-  local container caddy
-  container=$(wt_container_name)
-  caddy=$(wt_caddy_container_name)
-  docker rm -f "$caddy" >/dev/null 2>&1 || true
-  if docker ps -a --format '{{.Names}}' | grep -qx "$container"; then
-    docker rm -f "$container" >/dev/null
-    echo "generoi-worktree: stopped ${container}"
-  fi
+  wt_caddy_stop
   rm -f "$WT_STATE_FILE"
 }
 
-wt_sidecar_volume_args() {
-  local approot canonical_approot theme_public theme
-  approot=$(wt_approot)
-  canonical_approot=$(cd "$(wt_canonical_approot)" && pwd -P)
-
-  local -a volume_args=(
-    -v "${approot}:/var/www/html:cached"
-    -v "${approot}/.ddev:/mnt/ddev_config:ro"
-    -v "ddev-global-cache:/mnt/ddev-global-cache"
-    -v "ddev-ssh-agent_socket_dir:/home/.ssh-agent"
-  )
-
-  for rel in web/app/uploads .env .env.local auth.json; do
-    if [[ -e "${canonical_approot}/${rel}" ]]; then
-      volume_args+=(-v "${canonical_approot}/${rel}:/var/www/html/${rel}:ro")
-    fi
-  done
-
-  for theme_public in "${canonical_approot}"/web/app/themes/*/public; do
-    [[ -d "$theme_public" ]] || continue
-    theme=$(basename "$(dirname "$theme_public")")
-    local_rel="web/app/themes/${theme}/public"
-    if [[ ! -e "${approot}/${local_rel}" ]] || [[ -L "${approot}/${local_rel}" ]]; then
-      volume_args+=(-v "${theme_public}:/var/www/html/${local_rel}:ro")
-    fi
-  done
-
-  printf '%s\n' "${volume_args[@]}"
-}
-
-wt_sidecar_wait_healthy() {
-  local container=$1
-  echo "generoi-worktree: waiting for sidecar health..."
-  local ready=0 i
-  for i in $(seq 1 45); do
-    if docker ps --filter "name=${container}" --filter status=running --format '{{.Status}}' | grep -q healthy; then
-      ready=1
-      break
-    fi
-    sleep 2
-  done
-  if [[ $ready -ne 1 ]]; then
-    echo "generoi-worktree: sidecar not healthy within 90s" >&2
-    exit 1
-  fi
-}
-
 wt_sidecar_start() {
-  local requested_port=${1:-}
-  local suffix canonical_web image network container approot canonical_name primary_host
-  local env_file port
-
-  suffix=$(wt_suffix)
-  canonical_name=$(wt_canonical_name)
-  canonical_web="ddev-${canonical_name}-web"
-  image=$(docker inspect "$canonical_web" --format '{{.Config.Image}}')
-  network=$(wt_network_name)
-  container=$(wt_container_name)
-  approot=$(wt_approot)
-  port=$(wt_allocate_port "$requested_port")
-
-  local canonical_hosts=()
-  while IFS= read -r _host; do
-    [[ -n "$_host" ]] && canonical_hosts+=("$_host")
-  done < <(wt_canonical_hosts "$canonical_web")
-  primary_host="${canonical_hosts[0]}"
-
-  wt_sidecar_stop >/dev/null 2>&1 || true
-
-  env_file=$(mktemp "${TMPDIR:-/tmp}/generoi-wt-env.XXXXXX")
-  docker inspect "$canonical_web" --format '{{range .Config.Env}}{{println .}}{{end}}' >"$env_file"
-  {
-    echo "GENEROI_WT=1"
-    echo "GENEROI_WT_PORT=${port}"
-    echo "DDEV_APPROOT=/var/www/html"
-    echo "DDEV_COMPOSER_ROOT=/var/www/html"
-    echo "DDEV_PRIMARY_URL=https://${primary_host}:${port}"
-    echo "DDEV_SCHEME=https"
-    echo "DDEV_HOSTNAME=$(grep '^DDEV_HOSTNAME=' "$env_file" | head -1 | cut -d= -f2-)"
-  } >>"$env_file"
-
-  wt_write_caddyfile "$port" "$container" "$canonical_name" "${canonical_hosts[@]}"
-
-  local -a volume_args=()
-  while IFS= read -r vol; do
-    volume_args+=("$vol")
-  done < <(wt_sidecar_volume_args)
-
-  docker run -d \
-    --name "$container" \
-    --network "$network" \
-    --user "501:20" \
-    --label "com.generoi.worktree=true" \
-    --label "com.generoi.canonical=${canonical_name}" \
-    --label "com.generoi.approot=${approot}" \
-    --env-file "$env_file" \
-    "${volume_args[@]}" \
-    "$image" >/dev/null
-
-  rm -f "$env_file"
-
-  wt_sidecar_wait_healthy "$container"
-  wt_caddy_start "$port" "$network"
-
-  local url="https://${primary_host}:${port}"
-  local host_list
-  host_list=$(docker inspect "$canonical_web" --format '{{range .Config.Env}}{{println .}}{{end}}' \
-    | awk -F= '/^DDEV_HOSTNAME=/{print $2; exit}')
-
-  mkdir -p "$WT_STATE_DIR"
-  jq -n \
-    --arg container "$container" \
-    --arg caddy "$(wt_caddy_container_name)" \
-    --arg suffix "$suffix" \
-    --arg canonical_name "$canonical_name" \
-    --arg canonical_approot "$(wt_canonical_approot)" \
-    --arg approot "$approot" \
-    --arg primary "$primary_host" \
-    --arg hostnames "$host_list" \
-    --arg url "$url" \
-    --argjson port "$port" \
-    '{
-      container: $container,
-      caddy_container: $caddy,
-      suffix: $suffix,
-      db_name: "db",
-      canonical_name: $canonical_name,
-      canonical_approot: $canonical_approot,
-      approot: $approot,
-      db_mode: "shared",
-      port: $port,
-      primary_hostname: $primary,
-      hostnames: $hostnames,
-      url: $url
-    }' >"$WT_STATE_FILE"
-
-  echo "generoi-worktree: sidecar ${container} at ${url}"
-  if ((${#canonical_hosts[@]} > 1)); then
-    echo "generoi-worktree: subsite example: https://${canonical_hosts[1]}:${port}"
-  fi
-  echo "WT_URL=${url}"
+  echo "generoi-worktree: wt-up was removed in v0.2; use 'ddev start' in this worktree." >&2
+  exit 1
 }

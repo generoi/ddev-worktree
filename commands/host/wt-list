@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 ## #ddev-generated: If you want to edit and own this file, remove this line.
-## Description: List generoi worktree sidecars for this canonical project
+## Description: List generoi worktree Caddy proxies for this canonical project
 ## Usage: wt-list
 ## Example: "ddev wt-list"
 ## OSTypes: linux,darwin
@@ -17,6 +17,6 @@ wt_ensure_ddev_project
 
 name=$(wt_canonical_name)
 docker ps -a \
-  --filter "label=com.generoi.worktree=true" \
+  --filter "label=com.generoi.worktree-proxy=caddy" \
   --filter "label=com.generoi.canonical=${name}" \
   --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.Label "com.generoi.approot"}}'
