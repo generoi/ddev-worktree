@@ -28,7 +28,7 @@ post_install_actions:
       echo "generoi-worktree: add this to .ddev/config.yaml under hooks.pre-start:"
       echo '    - exec-host: "bash .ddev/commands/host/wt-guard"'
       echo ""
-      echo "Also commit config/environments/wt.php and the application.php hook (see README)."
+      echo "Also add HTTP_HOST port stripping to config/application.php (see README)."
     fi
 
 removal_actions:

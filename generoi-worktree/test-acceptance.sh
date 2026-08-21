@@ -99,10 +99,10 @@ else
   fail "legacy mu-plugin should not exist"
 fi
 
-if [[ -f "$APPROOT/config/environments/wt.php" ]]; then
-  pass "committed wt.php config exists"
+if grep -q "preg_replace('/:\\\\d+\$/'" "$APPROOT/config/application.php" 2>/dev/null; then
+  pass "application.php strips :port from HTTP_HOST"
 else
-  fail "config/environments/wt.php missing"
+  fail "config/application.php should strip :port from HTTP_HOST (see add-on README)"
 fi
 
 echo ""

@@ -32,17 +32,18 @@ hooks:
     - exec-host: "bash .ddev/commands/host/wt-guard"
 ```
 
-2. **`config/environments/wt.php`** — strip `:port` from `HTTP_HOST` when `GENEROI_WT=1` (see herrfors for template).
-
-3. **`config/application.php`** — load `wt.php` before URL constants:
+2. **`config/application.php`** — before URL constants, normalize proxy host headers:
 
 ```php
-if (getenv('GENEROI_WT') && file_exists(__DIR__.'/environments/wt.php')) {
-    require_once __DIR__.'/environments/wt.php';
+if (! empty($_SERVER['HTTP_HOST'])) {
+    $_SERVER['HTTP_HOST'] = preg_replace('/:\d+$/', '', $_SERVER['HTTP_HOST']);
+}
+if (! empty($_SERVER['HTTP_X_FORWARDED_PORT'])) {
+    $_SERVER['SERVER_PORT'] = $_SERVER['HTTP_X_FORWARDED_PORT'];
 }
 ```
 
-4. **`.gitignore`** — ` .ddev/wt/` (generated Caddyfile + state).
+3. **`.gitignore`** — `.ddev/wt/` (generated Caddyfile + state).
 
 5. **Multisite** — list subsite hostnames in `additional_hostnames` (e.g. `nat.herrfors`).
 
