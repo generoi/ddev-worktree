@@ -6,8 +6,8 @@ Worktree sidecars for Bedrock sites: reuse the canonical DDEV web image + **shar
 MariaDB**, browse on `https://<canonical-host>:808x` while PHP/DB keep canonical
 hostnames.
 
-**Caddy** (`replace-response`) rewrites `Location` headers and response bodies.
-Minimal Bedrock hook: `config/environments/wt.php`.
+**Caddy** strips `:port` from `Host` before PHP (`header_up Host {http.request.host}`),
+then `replace-response` adds `:808x` back in browser URLs. No Bedrock changes.
 
 ## Usage
 

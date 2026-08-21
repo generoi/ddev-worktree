@@ -168,15 +168,13 @@ wt_write_caddyfile() {
   replace_block=""
   for host in $(printf '%s\n' "${canonical_hosts[@]}" | awk '{print length, $0}' | sort -rn | cut -d' ' -f2-); do
     host_re=$(printf '%s' "$host" | sed 's/\./\\./g')
-    header_down_block+="    header_down Location ^https://${host_re}(.*)$ https://${host}:${port}\$1
-    header_down Location ^http://${host_re}(.*)$ http://${host}:${port}\$1
+    header_down_block+="    header_down Location ^https://${host_re}(?::\\d+)?(.*)$ https://${host}:${port}\$1
+    header_down Location ^http://${host_re}(?::\\d+)?(.*)$ http://${host}:${port}\$1
 "
     replace_block+="    https://${host}/ https://${host}:${port}/
     https://${host}\" https://${host}:${port}\"
-    https://${host} https://${host}:${port}
     http://${host}/ http://${host}:${port}/
     http://${host}\" http://${host}:${port}\"
-    http://${host} http://${host}:${port}
 "
   done
 
@@ -195,6 +193,7 @@ ${replace_block}  }
 
   reverse_proxy ${web_container}:80 {
     header_up Accept-Encoding identity
+    header_up Host {http.request.host}
     header_up X-Forwarded-Proto https
     header_up X-Forwarded-Port ${port}
 ${header_down_block}  }
@@ -273,14 +272,10 @@ wt_bootstrap_links() {
   done
 
   mkdir -p "$approot/.ddev/nginx"
-  cat >"$approot/.ddev/nginx/redirect-uploads.conf" <<'EOF'
-# generoi-worktree: local 404 for missing uploads (no prod redirect)
-location ^~ /app/uploads/ {
-    absolute_redirect off;
-    try_files $uri =404;
-}
-EOF
-  echo "generoi-worktree: wrote .ddev/nginx/redirect-uploads.conf (local 404)"
+  if [[ -f "$canonical/.ddev/nginx/redirect-uploads.conf" ]]; then
+    cp -f "$canonical/.ddev/nginx/redirect-uploads.conf" "$approot/.ddev/nginx/redirect-uploads.conf"
+    echo "generoi-worktree: copied .ddev/nginx/redirect-uploads.conf from canonical"
+  fi
 }
 
 wt_install_js_deps() {
