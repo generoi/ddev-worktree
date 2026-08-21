@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
 ## #ddev-generated: If you want to edit and own this file, remove this line.
-## Description: (removed) use ddev start in git worktrees
-## Usage: wt-up
+## Description: Re-clone database from canonical (worktrees only)
+## Usage: wt-sync-db
+## Example: "ddev wt-sync-db"
 ## OSTypes: linux,darwin
 ## ProjectTypes: php,wordpress
 
@@ -11,4 +12,6 @@ set -euo pipefail
 # shellcheck disable=SC1091
 source "$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)/.ddev/generoi-worktree/lib.sh"
 
-wt_sidecar_start
+wt_require ddev
+wt_ensure_ddev_project
+wt_sync_db

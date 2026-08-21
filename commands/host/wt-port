@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 ## #ddev-generated: If you want to edit and own this file, remove this line.
-## Description: Print this worktree sidecar URL (WT_URL)
+## Description: Print worktree browse URL (WT_URL on :808x)
 ## Usage: wt-port
 ## Example: "ddev wt-port"
 ## OSTypes: linux,darwin
@@ -15,7 +15,7 @@ source "$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)/.ddev/generoi-wor
 wt_ensure_ddev_project
 
 if ! wt_read_state >/dev/null 2>&1; then
-  echo "generoi-worktree: no active sidecar (run ddev wt-up)" >&2
+  echo "generoi-worktree: no Caddy proxy state (run ddev start in this worktree)" >&2
   exit 1
 fi
 

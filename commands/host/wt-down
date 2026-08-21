@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 ## #ddev-generated: If you want to edit and own this file, remove this line.
-## Description: Stop this worktree's sidecar container
+## Description: Stop Caddy proxy (DDEV web/db keep running)
 ## Usage: wt-down
 ## Example: "ddev wt-down"
 ## OSTypes: linux,darwin
@@ -14,4 +14,4 @@ source "$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)/.ddev/generoi-wor
 
 wt_require docker
 wt_ensure_ddev_project
-wt_sidecar_stop
+wt_caddy_stop

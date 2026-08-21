@@ -2,12 +2,31 @@
 
 Install: `ddev add-on get generoi/ddev-worktree`
 
-Worktree sidecars for Bedrock sites: reuse the canonical DDEV web image + **shared
-MariaDB**, browse on `https://<canonical-host>:808x` while PHP/DB keep canonical
-hostnames.
+## v0.2 architecture
 
-**Caddy** strips `:port` from `Host` before PHP (`header_up Host {http.request.host}`),
-then `replace-response` adds `:808x` back in browser URLs. No Bedrock changes.
+**Canonical:** normal `ddev start` — one MariaDB, Traefik URL.
+
+**Git worktree:** `ddev start` — full DDEV project with a unique name (`herrfors-wt-<suffix>`), own MariaDB, Caddy on `:808x`.
+
+```
+Browser ──► Caddy (:808x) ──► ddev-<wt-project>-web:80
+                                    │
+                                    └── ddev-<wt-project>-db (forked from canonical)
+```
+
+**Caddy** strips `:port` from `Host` before PHP (`header_up Host {http.request.host}`), then `replace-response` adds `:808x` back in browser URLs.
+
+**Database:** first `ddev start` in a worktree exports canonical `db` and imports into the worktree DB (no search-replace). Refresh manually with `ddev wt-sync-db`.
+
+**Uploads / .env:** symlinked from canonical checkout on `wt-prepare` (shared on host).
+
+## Hooks
+
+| Hook | Action |
+|------|--------|
+| `pre-start` | `wt-prepare` — unique project name, bootstrap symlinks |
+| `post-start` | `wt-post-start` — seed DB if empty, start Caddy |
+| `pre-stop` | `wt-pre-stop` — stop Caddy |
 
 ## Usage
 
@@ -16,18 +35,8 @@ then `replace-response` adds `:808x` back in browser URLs. No Bedrock changes.
 **Worktree:**
 
 ```bash
-ddev wt-up
+ddev start
 ddev wt-port
-ddev wt-down
+ddev wt-sync-db   # optional: refresh DB from canonical
+ddev stop
 ```
-
-| Flag | Description |
-|------|-------------|
-| `--port=808x` | Pin host port (default: first free 8081–8099) |
-| `--no-deps` | Skip composer/pnpm install |
-
-## Bootstrap
-
-Symlinks from canonical: `.env`, uploads, theme `public/` dirs.
-
-Local per worktree: `composer install`, `pnpm install` (or npm/yarn from lockfile).

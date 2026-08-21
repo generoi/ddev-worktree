@@ -7,12 +7,15 @@ project_files:
   - generoi-worktree/lib.sh
   - generoi-worktree/Dockerfile.caddy
   - generoi-worktree/test-acceptance.sh
-  - commands/host/wt-up
+  - commands/host/wt-prepare
+  - commands/host/wt-post-start
+  - commands/host/wt-pre-stop
+  - commands/host/wt-sync-db
   - commands/host/wt-down
   - commands/host/wt-list
   - commands/host/wt-port
+  - commands/host/wt-up
   - commands/host/wt-wp
-  - commands/host/wt-guard
 
 global_files: []
 
@@ -21,15 +24,25 @@ pre_install_actions: []
 post_install_actions:
   - |
     #ddev-description: Make generoi-worktree commands executable
-    chmod +x "$DDEV_APPROOT/.ddev/commands/host/wt-up" "$DDEV_APPROOT/.ddev/commands/host/wt-down" "$DDEV_APPROOT/.ddev/commands/host/wt-list" "$DDEV_APPROOT/.ddev/commands/host/wt-port" "$DDEV_APPROOT/.ddev/commands/host/wt-wp" "$DDEV_APPROOT/.ddev/commands/host/wt-guard"
+    chmod +x "$DDEV_APPROOT/.ddev/commands/host/wt-prepare" \
+      "$DDEV_APPROOT/.ddev/commands/host/wt-post-start" \
+      "$DDEV_APPROOT/.ddev/commands/host/wt-pre-stop" \
+      "$DDEV_APPROOT/.ddev/commands/host/wt-sync-db" \
+      "$DDEV_APPROOT/.ddev/commands/host/wt-down" \
+      "$DDEV_APPROOT/.ddev/commands/host/wt-list" \
+      "$DDEV_APPROOT/.ddev/commands/host/wt-port" \
+      "$DDEV_APPROOT/.ddev/commands/host/wt-up" \
+      "$DDEV_APPROOT/.ddev/commands/host/wt-wp"
   - |
-    #ddev-description: Remind to gitignore generated worktree state
+    #ddev-description: Remind to gitignore generated worktree files
     if ! grep -qE '^\.ddev/wt/' "$DDEV_APPROOT/.gitignore" 2>/dev/null; then
       echo ""
-      echo "generoi-worktree: add .ddev/wt/ to .gitignore (generated Caddyfile + state)."
+      echo "generoi-worktree: add these to .gitignore (see README):"
+      echo "  .ddev/wt/"
+      echo "  .ddev/config.generoi-worktree.local.yaml"
     fi
 
 removal_actions:
   - |
-    #ddev-description: Stop any running worktree sidecar
+    #ddev-description: Stop Caddy proxy if running
     bash "$DDEV_APPROOT/.ddev/commands/host/wt-down" >/dev/null 2>&1 || true

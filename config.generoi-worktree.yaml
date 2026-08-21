@@ -1,5 +1,9 @@
 # #ddev-generated
-# generoi-worktree: block ddev start in git worktrees (use ddev wt-up).
+# generoi-worktree: git worktree support (unique name, Caddy :808x, forked DB).
 hooks:
   pre-start:
-    - exec-host: "bash .ddev/commands/host/wt-guard"
+    - exec-host: "bash .ddev/commands/host/wt-prepare"
+  post-start:
+    - exec-host: "bash .ddev/commands/host/wt-post-start"
+  pre-stop:
+    - exec-host: "bash .ddev/commands/host/wt-pre-stop"
